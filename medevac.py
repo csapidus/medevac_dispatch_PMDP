@@ -27,7 +27,7 @@ class Grid:
     def zone_from_loc(self, loc):
         for i, (xmin, xmax, ymin, ymax) in enumerate(self.zones):
             if xmin <= loc[0] <= xmax and ymin <= loc[1] <= ymax:
-                return i
+                return i + 1
 
     def generate_rand_loc(self, zone):
         xmin, xmax, ymin, ymax = self.zones[zone - 1]
@@ -56,10 +56,12 @@ class Casualty:
 class Medevac:
     staging_loc = (0, 0)
     timing = ()
+    zone = 0
     vel = 0
 
-    def __init__(self, loc, vel):
+    def __init__(self, loc, zone, vel):
         self.staging_loc = loc
+        self.zone = zone
         self.vel = vel
 
     def get_time_from_staging(self, loc):
@@ -132,8 +134,8 @@ def define_grid():
 
 def generate_casualties(grid):
     # generate date based on data basic information from paper
-    N = 10
-    T = 10000
+    N = 100
+    T = 100
     times = []
     for i in range(0, N):
         times.append(int(rand.uniform(0, T)))
@@ -170,10 +172,10 @@ def generate_casualties(grid):
 
 
 if __name__ == "__main__":
-    n_heli = 5
+    n_heli = 2
     grid = define_grid()
     casualties = generate_casualties(grid)
-    medevacs = [[Medevac(loc, Speed) for _ in range(n_heli)] for loc in StagingLocs]
+    medevacs = [[Medevac(loc, grid.zone_from_loc(loc), Speed) for _ in range(n_heli)] for loc in StagingLocs]
     policy = 'Myopic'
     for casualty in casualties:
         if policy == 'Myopic':
@@ -188,9 +190,11 @@ if __name__ == "__main__":
                     fastest_time = time_est
                     fastest_heli = idx
             if fastest_heli == -1:
-                print('{:6d}: Casualty in zone {:2d} at location ({:03.1f}, {:03.1f}) NOT assigned due to oversubscribed '
+                print('{:6d}: Casualty in zone {:2d} at location ({:5.1f}, {:5.1f}) NOT assigned due to oversubscribed '
                       'medevacs'.format(casualty.time, casualty.zone, *casualty.location))
+                continue
             heli = medevacs_flat[fastest_heli]
             heli.assign_casualty(casualty)
-            print('{:6d}: Casualty in zone {:2d} at location ({:03.1f}, {:03.1f}) assigned to medevac at location '
-                  '({:03.1f}, {:03.1f})'.format(casualty.time, casualty.zone, *casualty.location, *heli.staging_loc))
+            print('{:6d}: Casualty in zone {:2d} at location ({:5.1f}, {:5.1f}) assigned to medevac in zone {:2d} at '
+                  'location ({:03.1f}, {:03.1f})'.format(casualty.time, casualty.zone, *casualty.location, heli.zone,
+                                                         *heli.staging_loc))
