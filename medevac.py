@@ -1,11 +1,6 @@
 import math
+import random as rand
 
-# grid is (605 x 350) km
-# zone 1: x = 0-120 km
-# zone 2: x = 120-220 km
-# zone 3: x = 220-370 km
-# zone 4: x = 370-605, y = 180->top (from bottom)
-#
 # hospital locations
 # 1. (170, 180)
 # 2. (310, 150)
@@ -15,8 +10,9 @@ import math
 # 2. (170, 180)
 # 3. (310, 150)
 # 4. (510, 240)
-
 HospitalLocs = [(170, 180), (310, 150)]
+StagingLocs = [(100, 210), (170, 180), (310, 150), (510, 240)]
+Speed = 250 # km/h
 
 class Grid:
     limits = ()
@@ -33,6 +29,10 @@ class Grid:
             if xmin <= loc[0] <= xmax and ymin <= loc[1] <= ymax:
                 return i
 
+    def generate_rand_loc(self, zone):
+        xmin, xmax, ymin, ymax = self.zones[zone - 1]
+        return rand.uniform(xmin, xmax), rand.uniform(ymin, ymax)
+
 
 class Casualty:
     location = (0, 0)
@@ -41,6 +41,7 @@ class Casualty:
     # 1 urgent, 2 priority, and 1 routine would be (3, 2, 2, 1)
     severity = ()
     zone = 0
+    utility = 0
 
     def __init__(self, loc, zone, time, severity):
         self.location = loc
@@ -48,10 +49,13 @@ class Casualty:
         self.severity = severity
         self.zone = zone
 
+    def assign_utility(self, util):
+        self.utility = util
+
 
 class Medevac:
     staging_loc = (0, 0)
-    timing = []
+    timing = ()
     vel = 0
 
     def __init__(self, loc, vel):
@@ -75,7 +79,7 @@ class Medevac:
         return best_loc
 
     def get_time_to_hosp(self, loc):
-        xh, yh = self.get_nearest_hosp()
+        xh, yh = self.get_nearest_hosp(loc)
         x, y = loc
         return math.sqrt((xh - x) ** 2 + (yh - y) ** 2) / self.vel
 
@@ -86,9 +90,9 @@ class Medevac:
 
     def assign_casualty(self, casualty):
         t0 = casualty.time
-        if len(self.timing) > 0 and self.timing[-1] < t0:
-            print()
-        self.timing.clear()
+        if self.get_status(t0) > 0:
+            print('WARNING: Medevac already assigned for specified time interval. Nothing assigned.')
+            return
         xc, yc = casualty.location
         # [assigned time,
         # time after travel to casulty,
@@ -97,4 +101,97 @@ class Medevac:
         t1 = self.get_time_from_staging(casualty.location)
         t2 = self.get_time_to_hosp(casualty.location)
         t3 = self.get_time_from_staging(self.get_nearest_hosp(casualty.location))
-        self.timing.append([t0, t0 + t1, t0 + t1 + t2, t0 + t1 + t2 + t3])
+        self.timing = (t0, t0 + t1, t0 + t1 + t2, t0 + t1 + t2 + t3)
+
+        casualty.assign_utility(t1 + t2)
+
+    def get_status(self, time):
+        if len(self.timing) == 0:
+            return 0
+        t0, t1, t2, t3 = self.timing
+        if t1 > time >= t0:
+            return 1
+        elif t2 > time >= t1:
+            return 2
+        elif not math.isclose(t3, t2) and t3 > time >= t2:
+            return 3
+        elif time >= t3:
+            return 0
+
+def define_grid():
+    # grid is (605 x 350) km
+    # zone 1: x = 0-120 km
+    # zone 2: x = 120-220 km
+    # zone 3: x = 220-370 km
+    # zone 4: x = 370-605, y = 180->top (from bottom)
+    grid = Grid(0, 605, 0, 350)
+    zone_limits = [(0, 120, 0, 350), (120, 220, 0, 350), (220, 370, 0, 350), (370, 605, 180, 350)]
+    for xmin, xmax, ymin, ymax in zone_limits:
+        grid.add_zone(xmin, xmax, ymin, ymax)
+    return grid
+
+def generate_casualties(grid):
+    # generate date based on data basic information from paper
+    N = 50
+    T = 10000
+    times = []
+    for i in range(0, N):
+        times.append(int(rand.uniform(0, T)))
+    times.sort()
+    severities = []
+    sprobs = [0.11, 0.23]
+    for i in range(0, N):
+        num = rand.random()
+        if num < 0.11:
+            severities.append(3)
+        elif 0.11 < num < 0.23:
+            severities.append(2)
+        else:
+            severities.append(1)
+    zones = []
+    zprobs = [0.004, 0.004 + 0.073, 0.004 + 0.073 + 0.585]
+    for i in range(0, N):
+        num = rand.random()
+        if num < zprobs[0]:
+            zones.append(1)
+        elif zprobs[0] < num < zprobs[1]:
+            zones.append(2)
+        elif zprobs[1] < num < zprobs[2]:
+            zones.append(3)
+        else:
+            zones.append(4)
+    locs = []
+    for zone in zones:
+        locs.append(grid.generate_rand_loc(zone))
+
+    casualties = []
+    for loc, zone, time, severity in zip(locs, zones, times, severities):
+        casualties.append(Casualty(loc, zone, time, severity))
+    return casualties
+
+
+if __name__ == "__main__":
+    n_heli = 5
+    grid = define_grid()
+    casualties = generate_casualties(grid)
+    medevacs = [[Medevac(loc, Speed) for _ in range(n_heli)] for loc in StagingLocs]
+    policy = 'Myopic'
+    for casualty in casualties:
+        if policy == 'Myopic':
+            medevacs_flat = [medevac for list in medevacs for medevac in list]
+            fastest_time = float('nan')
+            fastest_heli = -1
+            for idx, medevac in enumerate(medevacs_flat):
+                if medevac.get_status(casualty.time) > 0:
+                    continue
+                time_est = medevac.get_expected_time(casualty.location)
+                if time_est < fastest_time:
+                    fastest_time = time_est
+                    fastest_heli = idx
+            if fastest_heli == -1:
+                print('{:6d}: Casualty in zone {:2d} at location ({:3.1f}, {:3.1f}) NOT assigned due to oversubscribed '
+                      'medevacs'.format(casualty.time, casualty.zone, *casualty.location))
+            heli = medevacs_flat[fastest_heli]
+            heli.assign_casualty(casualty)
+            print('{:6d}: Casualty in zone {:2d} at location ({:3.1f}, {:3.1f}) assigned to medevac at location '
+                  '({:3.1f}, {:3.1f})'.format(casualty.time, casualty.zone, *casualty.location, *heli.staging_loc))
