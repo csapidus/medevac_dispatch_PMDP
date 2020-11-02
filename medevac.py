@@ -132,10 +132,10 @@ def define_grid():
         grid.add_zone(xmin, xmax, ymin, ymax)
     return grid
 
-def generate_casualties(grid):
+def generate_casualties(grid, N, T):
     # generate date based on data basic information from paper
-    N = 100
-    T = 100
+    # N = 100
+    # T = 100
     times = []
     for i in range(0, N):
         times.append(int(rand.uniform(0, T)))
@@ -174,7 +174,7 @@ def generate_casualties(grid):
 if __name__ == "__main__":
     n_heli = 2
     grid = define_grid()
-    casualties = generate_casualties(grid)
+    casualties = generate_casualties(grid, N=100, T=100)
     medevacs = [[Medevac(loc, grid.zone_from_loc(loc), Speed) for _ in range(n_heli)] for loc in StagingLocs]
     policy = 'Myopic'
     for casualty in casualties:
