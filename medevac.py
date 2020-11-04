@@ -12,9 +12,9 @@ import numpy as np
 # 2. (170, 180)
 # 3. (310, 150)
 # 4. (510, 240)
-HospitalLocs = [(170, 180), (310, 150)]
-StagingLocs = [(100, 210), (170, 180), (310, 150), (510, 240)]
-Speed = 250 # km/h
+HospitalLocs = [(170.0, 180.0), (310.0, 150.0)]
+StagingLocs = [(100.0, 210.0), (170.0, 180.0), (310.0, 150.0), (510.0, 240.0)]
+Speed = 250.0 # km/h
 
 class Grid:
     limits = ()
@@ -34,9 +34,9 @@ class Grid:
     def generate_rand_loc(self, zone):
         xmin, xmax, ymin, ymax = self.zones[zone - 1]
         x, y = -100, -100
-        while (xmin <= x <= xmax) and (ymin <= y <= ymax):
-            x = np.random.normal(StagingLocs[zone - 1][0], 30)
-            y = np.random.normal(StagingLocs[zone - 1][1], 30)
+        while not (xmin <= x <= xmax) and not (ymin <= y <= ymax):
+            x = np.random.normal(StagingLocs[zone - 1][0], 50)
+            y = np.random.normal(StagingLocs[zone - 1][1], 50)
         return x, y
 
 
@@ -59,7 +59,7 @@ class Casualty:
         elif severity == 2:
             self.utility = 1
         else:
-            self.utility = 0
+            self.utility = 0.1
 
 
 class Medevac:
@@ -80,7 +80,7 @@ class Medevac:
         return math.sqrt((x - xs)**2 + (y - ys)**2) / self.vel
 
     def get_nearest_hosp(self, loc):
-        best_dist = float('nan')
+        best_dist = float('inf')
         best_loc = (0, 0)
         x, y = loc
         for xh, yh, in HospitalLocs:
@@ -146,8 +146,9 @@ def define_grid():
     # zone 2: x = 120-220 km
     # zone 3: x = 220-370 km
     # zone 4: x = 370-605, y = 180->top (from bottom)
-    grid = Grid(0, 605, 0, 350)
-    zone_limits = [(0, 120, 0, 350), (120, 220, 0, 350), (220, 370, 0, 350), (370, 605, 180, 350)]
+    grid = Grid(0.0, 605.0, 0.0, 350.0)
+    zone_limits = [(0.0, 120.0, 0.0, 350.0), (120.0, 220.0, 0.0, 350.0), (220.0, 370.0, 0.0, 350.0),
+                   (370.0, 605.0, 180.0, 350.0)]
     for xmin, xmax, ymin, ymax in zone_limits:
         grid.add_zone(xmin, xmax, ymin, ymax)
     return grid
@@ -212,46 +213,45 @@ def calc_optimal_policy(medevacs):
             Q[s, a] = 0.0
             NN[s, a] = 0
 
-    # gamma = 0.9
-    # alpha = 0.9
-    # for epoch in range(100000):
-    #     casualties = generate_casualties(grid, N=10, T=10000)
-    #     if epoch % 20 == 0:
-    #         print('Entering epoch {}/1000...'.format(epoch))
-    #     for medevac in medevacs:
-    #         medevac.clear_casualty()
-    #     for casualty in casualties:
-    #         sl = [m.get_status(casualty.time) for m in medevacs]
-    #         print('{}: status: {}'.format(casualty.time, sl))
-    #         sl.append(casualty.zone)
-    #         sl.append(casualty.severity)
-    #         s = tuple(sl)
-    #         a_choices = possible_actions(s, A)
-    #         if len(a_choices) > 0:
-    #             a = rand.choice(a_choices)
-    #             medevacs[a[0] - 1].assign_casualty(casualty)
-    #             r = casualty.utility
-    #             Q[s, a] += alpha * (r + gamma * max([Q[s, ap] for ap in a_choices]) - Q[s, a])
-
     gamma = 0.9
     alpha = 0.9
-    N = 10000
-    hs = [w, x, y, z]
-    for epoch in range(N):
-        if epoch % 20 == 0:
-            print('Entering epoch {}/{}...'.format(epoch, N))
+    for epoch in range(10000):
         casualties = generate_casualties(grid, N=100, T=10000)
+        if epoch % 20 == 0:
+            print('Entering epoch {}/1000...'.format(epoch))
+        for medevac in medevacs:
+            medevac.clear_casualty()
         for casualty in casualties:
-            sl = [rand.choice(hs[i]) for i in range(len(hs))]
+            sl = [m.get_status(casualty.time) for m in medevacs]
             sl.append(casualty.zone)
             sl.append(casualty.severity)
             s = tuple(sl)
             a_choices = possible_actions(s, A)
             if len(a_choices) > 0:
                 a = rand.choice(a_choices)
-                r = casualty.utility
+                medevacs[a[0] - 1].assign_casualty(casualty)
+                r = 0.0 if medevacs[a[0] - 1].get_casualty_time() > 1.0 else casualty.utility
                 Q[s, a] += alpha * (r + gamma * max([Q[s, ap] for ap in a_choices]) - Q[s, a])
                 NN[s, a] += 1
+
+    # gamma = 0.95
+    # alpha = 0.8
+    # N = 10000
+    # hs = [w, x, y, z]
+    # for epoch in range(N):
+    #     if epoch % 20 == 0:
+    #         print('Entering epoch {}/{}...'.format(epoch, N))
+    #     casualties = generate_casualties(grid, N=100, T=10000)
+    #     for casualty in casualties:
+    #         sl = [rand.choice(hs[i]) for i in range(len(hs))]
+    #         sl.append(casualty.zone)
+    #         sl.append(casualty.severity)
+    #         s = tuple(sl)
+    #         a_choices = possible_actions(s, A)
+    #         for a in a_choices:
+    #             r = casualty.utility
+    #             Q[s, a] += alpha * (r + gamma * max([Q[s, ap] for ap in a_choices]) - Q[s, a])
+    #             NN[s, a] += 1
 
 
     policy = {}
