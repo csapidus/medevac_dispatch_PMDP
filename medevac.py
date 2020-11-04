@@ -1,5 +1,7 @@
 import math
 import random as rand
+from itertools import product
+import numpy as np
 
 # hospital locations
 # 1. (170, 180)
@@ -31,7 +33,11 @@ class Grid:
 
     def generate_rand_loc(self, zone):
         xmin, xmax, ymin, ymax = self.zones[zone - 1]
-        return rand.uniform(xmin, xmax), rand.uniform(ymin, ymax)
+        x, y = -100, -100
+        while (xmin <= x <= xmax) and (ymin <= y <= ymax):
+            x = np.random.normal(StagingLocs[zone - 1][0], 30)
+            y = np.random.normal(StagingLocs[zone - 1][1], 30)
+        return x, y
 
 
 class Casualty:
@@ -48,15 +54,19 @@ class Casualty:
         self.time = time
         self.severity = severity
         self.zone = zone
-
-    def assign_utility(self, util):
-        self.utility = util
+        if severity == 3:
+            self.utility = 10
+        elif severity == 2:
+            self.utility = 1
+        else:
+            self.utility = 0
 
 
 class Medevac:
     staging_loc = (0, 0)
     timing = ()
     zone = 0
+    casualty_zone = 0
     vel = 0
 
     def __init__(self, loc, zone, vel):
@@ -93,7 +103,7 @@ class Medevac:
     def assign_casualty(self, casualty):
         t0 = casualty.time
         if self.get_status(t0) > 0:
-            print('WARNING: Medevac already assigned for specified time interval. Nothing assigned.')
+            # print('WARNING: Medevac already assigned for specified time interval. Nothing assigned.')
             return
         xc, yc = casualty.location
         # [assigned time,
@@ -104,20 +114,30 @@ class Medevac:
         t2 = self.get_time_to_hosp(casualty.location)
         t3 = self.get_time_from_staging(self.get_nearest_hosp(casualty.location))
         self.timing = (t0, t0 + t1, t0 + t1 + t2, t0 + t1 + t2 + t3)
+        self.casualty_zone = casualty.zone
 
-        casualty.assign_utility(t1 + t2)
+    def get_casualty_time(self):
+        return self.timing[2] - self.timing[0]
+
+    def clear_casualty(self):
+        self.timing = ()
+        self.casualty_zone = 0
 
     def get_status(self, time):
         if len(self.timing) == 0:
             return 0
         t0, t1, t2, t3 = self.timing
-        if t1 > time >= t0:
-            return 1
-        elif t2 > time >= t1:
-            return 2
-        elif not math.isclose(t3, t2) and t3 > time >= t2:
-            return 3
-        elif time >= t3:
+        # if t1 > time >= t0:
+        #     return 1
+        # elif t2 > time >= t1:
+        #     return 2
+        # elif not math.isclose(t3, t2) and t3 > time >= t2:
+        #     return 3
+        # elif time >= t3:
+        #     return 0
+        if t0 <= time <= t3:
+            return self.casualty_zone
+        else:
             return 0
 
 def define_grid():
@@ -170,31 +190,146 @@ def generate_casualties(grid, N, T):
         casualties.append(Casualty(loc, zone, time, severity))
     return casualties
 
+def possible_actions(s, A):
+    return [a for hi, h in enumerate(s[:4]) if h == 0 for a in A if a[0] == hi + 1 and a[1] == s[4]]
+
+def calc_optimal_policy(medevacs):
+    w = [0, 1, 2]  # Medevac in zone 1 can be idle or vist zone 1 or 2
+    x = [0, 1, 2, 3]
+    y = [0, 2, 3, 4]
+    z = [0, 3, 4]
+    c = [1, 2, 3, 4]
+    p = [1, 2, 3]
+
+    S = [s for s in product(w, x, y, z, c, p)]
+    A = [(1, 1), (1, 2), (2, 1), (2, 2), (2, 3), (3, 2), (3, 3), (3, 4), (4, 3), (4, 4)]
+    Q = {}
+    NN = {}
+    for s in S:
+        a_choices = possible_actions(s, A)
+        # print(a_choices)
+        for a in a_choices:
+            Q[s, a] = 0.0
+            NN[s, a] = 0
+
+    # gamma = 0.9
+    # alpha = 0.9
+    # for epoch in range(100000):
+    #     casualties = generate_casualties(grid, N=10, T=10000)
+    #     if epoch % 20 == 0:
+    #         print('Entering epoch {}/1000...'.format(epoch))
+    #     for medevac in medevacs:
+    #         medevac.clear_casualty()
+    #     for casualty in casualties:
+    #         sl = [m.get_status(casualty.time) for m in medevacs]
+    #         print('{}: status: {}'.format(casualty.time, sl))
+    #         sl.append(casualty.zone)
+    #         sl.append(casualty.severity)
+    #         s = tuple(sl)
+    #         a_choices = possible_actions(s, A)
+    #         if len(a_choices) > 0:
+    #             a = rand.choice(a_choices)
+    #             medevacs[a[0] - 1].assign_casualty(casualty)
+    #             r = casualty.utility
+    #             Q[s, a] += alpha * (r + gamma * max([Q[s, ap] for ap in a_choices]) - Q[s, a])
+
+    gamma = 0.9
+    alpha = 0.9
+    N = 10000
+    hs = [w, x, y, z]
+    for epoch in range(N):
+        if epoch % 20 == 0:
+            print('Entering epoch {}/{}...'.format(epoch, N))
+        casualties = generate_casualties(grid, N=100, T=10000)
+        for casualty in casualties:
+            sl = [rand.choice(hs[i]) for i in range(len(hs))]
+            sl.append(casualty.zone)
+            sl.append(casualty.severity)
+            s = tuple(sl)
+            a_choices = possible_actions(s, A)
+            if len(a_choices) > 0:
+                a = rand.choice(a_choices)
+                r = casualty.utility
+                Q[s, a] += alpha * (r + gamma * max([Q[s, ap] for ap in a_choices]) - Q[s, a])
+                NN[s, a] += 1
+
+
+    policy = {}
+    with open('Q.out', 'w') as f:
+        with open('NN.out', 'w') as ff:
+            for s in S:
+                f.write('{}: '.format(s))
+                ff.write('{}: '.format(s))
+                a_choices = possible_actions(s, A)
+                if len(a_choices) > 0:
+                    choices = [Q[s, a] for a in a_choices]
+                    [f.write(' {}->{:2.2f}'.format(a, Q[s, a])) for a in a_choices]
+                    [ff.write(' {}->{}'.format(a, NN[s, a])) for a in a_choices]
+                    policy[s] = a_choices[choices.index(max(choices))]
+                f.write('\n')
+                ff.write('\n')
+    for medevac in medevacs:
+        medevac.clear_casualty()
+    return policy
+
 
 if __name__ == "__main__":
-    n_heli = 2
+    n_heli = 1
     grid = define_grid()
-    casualties = generate_casualties(grid, N=100, T=100)
-    medevacs = [[Medevac(loc, grid.zone_from_loc(loc), Speed) for _ in range(n_heli)] for loc in StagingLocs]
-    policy = 'Myopic'
+    casualties = generate_casualties(grid, N=1000, T=1000)
+    medevacs = [Medevac(loc, grid.zone_from_loc(loc), Speed) for loc in StagingLocs]
+    opt_policy = calc_optimal_policy(medevacs)
+    times = []
+    s = [0, 0, 0, 0, 0]
+    num_skip = 0
     for casualty in casualties:
-        if policy == 'Myopic':
-            medevacs_flat = [medevac for list in medevacs for medevac in list]
-            fastest_time = float('inf')
-            fastest_heli = -1
-            for idx, medevac in enumerate(medevacs_flat):
-                if medevac.get_status(casualty.time) > 0:
-                    continue
-                time_est = medevac.get_expected_time(casualty.location)
-                if time_est < fastest_time:
-                    fastest_time = time_est
-                    fastest_heli = idx
-            if fastest_heli == -1:
-                print('{:6d}: Casualty in zone {:2d} at location ({:5.1f}, {:5.1f}) NOT assigned due to oversubscribed '
-                      'medevacs'.format(casualty.time, casualty.zone, *casualty.location))
+        sl = [m.get_status(casualty.time) for m in medevacs]
+        sl.append(casualty.zone)
+        sl.append(casualty.severity)
+        s = tuple(sl)
+        a = opt_policy.get(s)
+        if a is None:
+            num_skip += 1
+            continue
+        medevacs[a[0] - 1].assign_casualty(casualty)
+        heli = medevacs[a[0] - 1]
+        # print('{:6d}: Casualty in zone {:2d} at location ({:5.1f}, {:5.1f}) assigned to medevac in zone {:2d} at '
+        #       'location ({:03.1f}, {:03.1f})'.format(casualty.time, casualty.zone, *casualty.location,
+        #                                              heli.zone, *heli.staging_loc))
+        times.append(heli.get_casualty_time())
+    print('Average time to hospital (Optimal Policy): {:5.3f}'.format(sum(times)/len(times)))
+    # print('Skipped: {}\n'.format(num_skip))
+    print(opt_policy)
+    with open('optimal_policy.policy', 'w') as f:
+        for k, v in opt_policy.items():
+            f.write('{}: {}\n'.format(k, v))
+
+    times = []
+    num_skip = 0
+    for m in medevacs:
+        m.clear_casualty()
+    for casualty in casualties:
+        fastest_time = float('inf')
+        fastest_heli = -1
+        for idx, medevac in enumerate(medevacs):
+            if medevac.get_status(casualty.time) > 0 or not any([medevac.zone + 1 == casualty.zone or
+                                                                 medevac.zone - 1 == casualty.zone or
+                                                                 medevac.zone == casualty.zone]):
                 continue
-            heli = medevacs_flat[fastest_heli]
-            heli.assign_casualty(casualty)
-            print('{:6d}: Casualty in zone {:2d} at location ({:5.1f}, {:5.1f}) assigned to medevac in zone {:2d} at '
-                  'location ({:03.1f}, {:03.1f})'.format(casualty.time, casualty.zone, *casualty.location, heli.zone,
-                                                         *heli.staging_loc))
+            time_est = medevac.get_expected_time(casualty.location)
+            if time_est < fastest_time:
+                fastest_time = time_est
+                fastest_heli = idx
+        if fastest_heli == -1:
+            num_skip += 1
+            # print('{:6d}: Casualty in zone {:2d} at location ({:5.1f}, {:5.1f}) NOT assigned due to oversubscribed '
+            #       'medevacs'.format(casualty.time, casualty.zone, *casualty.location))
+            continue
+        heli = medevacs[fastest_heli]
+        heli.assign_casualty(casualty)
+        # print('{:6d}: Casualty in zone {:2d} at location ({:5.1f}, {:5.1f}) assigned to medevac in zone {:2d} at '
+        #       'location ({:03.1f}, {:03.1f})'.format(casualty.time, casualty.zone, *casualty.location, heli.zone,
+        #                                              *heli.staging_loc))
+        times.append(fastest_time)
+    print('Average time to hospital (Myopic Policy): {:5.3f}'.format(sum(times) / len(times)))
+    # print('Skipped: {}\n'.format(num_skip))
