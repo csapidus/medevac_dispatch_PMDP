@@ -14,7 +14,7 @@ import numpy as np
 # 4. (510, 240)
 HospitalLocs = [(170.0, 180.0), (310.0, 150.0)]
 StagingLocs = [(100.0, 210.0), (170.0, 180.0), (310.0, 150.0), (510.0, 240.0)]
-Speed = 250.0 # km/h
+Speed = 250.0  # km/h
 
 class Grid:
     limits = ()
@@ -211,17 +211,40 @@ def calc_optimal_policy(medevacs):
         # print(a_choices)
         for a in a_choices:
             Q[s, a] = 0.0
-            NN[s, a] = 0
+            NN[s, a] = 0.0
 
     gamma = 0.9
-    alpha = 0.9
-    for epoch in range(10000):
-        casualties = generate_casualties(grid, N=100, T=10000)
+    alpha = 0.5
+    lam = 0.5
+    N = 100
+    for epoch in range(N):
+        casualties = generate_casualties(grid, N=100, T=300)
         if epoch % 20 == 0:
-            print('Entering epoch {}/1000...'.format(epoch))
+            print('Entering epoch {}/{}...'.format(epoch, N))
         for medevac in medevacs:
             medevac.clear_casualty()
-        for casualty in casualties:
+        # for casualty, casualtyp in zip(casualties, casualties[1:]):
+        #     sl = [m.get_status(casualty.time) for m in medevacs]
+        #     sl.append(casualty.zone)
+        #     sl.append(casualty.severity)
+        #
+        #     s = tuple(sl)
+        #     a_choices = possible_actions(s, A)
+        #     if len(a_choices) > 0:
+        #         a = rand.choice(a_choices)
+        #         medevacs[a[0] - 1].assign_casualty(casualty)
+        #         slp = [m.get_status(casualtyp.time) for m in medevacs]
+        #         slp.append(casualtyp.zone)
+        #         slp.append(casualtyp.severity)
+        #         sp = tuple(slp)
+        #         a_choicesp = possible_actions(sp, A)
+        #         if len(a_choicesp) > 0:
+        #             # v = max([Q[sp, ap] for ap in a_choicesp]) if len(a_choicesp) > 0 else 0
+        #             r = 0.0 if medevacs[a[0] - 1].get_casualty_time() > 1.0 else casualty.utility
+        #             Q[s, a] += alpha * (r + gamma * max([Q[sp, ap] for ap in a_choicesp]) - Q[s, a])
+        #             NN[s, a] += 1
+
+        for casualty, casualtyp in zip(casualties, casualties[1:]):
             sl = [m.get_status(casualty.time) for m in medevacs]
             sl.append(casualty.zone)
             sl.append(casualty.severity)
@@ -230,9 +253,19 @@ def calc_optimal_policy(medevacs):
             if len(a_choices) > 0:
                 a = rand.choice(a_choices)
                 medevacs[a[0] - 1].assign_casualty(casualty)
-                r = 0.0 if medevacs[a[0] - 1].get_casualty_time() > 1.0 else casualty.utility
-                Q[s, a] += alpha * (r + gamma * max([Q[s, ap] for ap in a_choices]) - Q[s, a])
-                NN[s, a] += 1
+                slp = [m.get_status(casualtyp.time) for m in medevacs]
+                slp.append(casualtyp.zone)
+                slp.append(casualtyp.severity)
+                sp = tuple(slp)
+                a_choicesp = possible_actions(sp, A)
+                if len(a_choicesp) > 0:
+                    ap = rand.choice(a_choicesp)
+                    NN[sp, ap] += 1
+                    delta = casualtyp.utility + gamma * Q[s, a] - Q[sp, ap]
+                    for s in S:
+                        for a in possible_actions(s, A):
+                            Q[s, a] += alpha*delta*NN[s, a]
+                            NN[s, a] *= gamma*lam
 
     # gamma = 0.95
     # alpha = 0.8
