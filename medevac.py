@@ -1,7 +1,11 @@
 import math
+import sys
 import random as rand
 from itertools import product
 import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
+from matplotlib.collections import PatchCollection
 
 # hospital locations
 # 1. (170, 180)
@@ -14,7 +18,7 @@ import numpy as np
 # 4. (510, 240)
 HospitalLocs = [(170.0, 180.0), (310.0, 150.0)]
 StagingLocs = [(100.0, 210.0), (170.0, 180.0), (310.0, 150.0), (510.0, 240.0)]
-Speed = 250.0  # km/h
+Speed = 300.0  # km/h
 
 class Grid:
     limits = ()
@@ -35,8 +39,8 @@ class Grid:
         xmin, xmax, ymin, ymax = self.zones[zone - 1]
         x, y = -100, -100
         while not (xmin <= x <= xmax) and not (ymin <= y <= ymax):
-            x = np.random.normal(StagingLocs[zone - 1][0], 50)
-            y = np.random.normal(StagingLocs[zone - 1][1], 50)
+            x = np.random.normal(StagingLocs[zone - 1][0], 20)
+            y = np.random.normal(StagingLocs[zone - 1][1], 20)
         return x, y
 
 
@@ -172,7 +176,7 @@ def generate_casualties(grid, N, T):
         else:
             severities.append(1)
     zones = []
-    zprobs = [0.004, 0.004 + 0.073, 0.004 + 0.073 + 0.585]
+    zprobs = [0.004, 0.004 + 0.585, 0.004 + 0.585 + 0.338]
     for i in range(0, N):
         num = rand.random()
         if num < zprobs[0]:
@@ -218,7 +222,7 @@ def calc_optimal_policy(medevacs):
     lam = 0.5
     N = 100
     for epoch in range(N):
-        casualties = generate_casualties(grid, N=100, T=300)
+        casualties = generate_casualties(grid, N=1000, T=300)
         if epoch % 20 == 0:
             print('Entering epoch {}/{}...'.format(epoch, N))
         for medevac in medevacs:
@@ -305,13 +309,83 @@ def calc_optimal_policy(medevacs):
         medevac.clear_casualty()
     return policy
 
+def value_iteration(medevacs):
+    w = [0, 1, 2]  # Medevac in zone 1 can be idle or vist zone 1 or 2
+    x = [0, 1, 2, 3]
+    y = [0, 2, 3, 4]
+    z = [0, 3, 4]
+    c = [1, 2, 3, 4]
+    p = [1, 2, 3]
+
+    serve = [w, x, y, z]
+
+    S = [s for s in product(w, x, y, z, c, p)]
+    A = [(1, 1), (1, 2), (2, 1), (2, 2), (2, 3), (3, 2), (3, 3), (3, 4), (4, 3), (4, 4)]
+    Q = {}
+    NN = {}
+    phi = {}
+    phi_n = {}
+    mu = {}
+    alpha = 0.8
+    lam = 1/327
+    N = 1500
+
+    casualties = generate_casualties(grid, N=N, T=500)
+    for idx, casualty in enumerate(casualties):
+        if idx % 20 == 0:
+            print('Training phi and mu progress: {:0.1f}%'.format(100*(idx/N)))
+        for s in S:
+            for a in possible_actions(s, A):
+                medevacs[a[0] - 1].assign_casualty(casualty)
+                key = (*a, casualty.severity)
+                t = medevacs[a[0] - 1].get_casualty_time()*60
+                medevacs[a[0] - 1].clear_casualty()
+                r = 0 if t > 1.0 else casualty.utility
+                if key in phi:
+                    phi[key] += alpha * (r - phi[key])
+                    mu[a] += alpha * (t - mu[a])
+                else:
+                    phi[key] = alpha * r
+                    mu[a] = alpha * t
+    print(phi)
+    print(mu)
+
+    beta = [max([mu.get((h, zp), 0) for zp in range(1, 5)]) for h in range(1, 5)]
+    v = lam + sum(beta)
+    J = {}
+    S = [s for s in product(w, x, y, z)]
+
 
 if __name__ == "__main__":
     n_heli = 1
     grid = define_grid()
     casualties = generate_casualties(grid, N=1000, T=1000)
     medevacs = [Medevac(loc, grid.zone_from_loc(loc), Speed) for loc in StagingLocs]
+
+    ax = plt.gca()
+    boxes = []
+    for zone in grid.zones:
+        xmin, xmax, ymin, ymax = zone
+        boxes.append(Rectangle((xmin, ymin), xmax - xmin, ymax - ymin))
+    pc = PatchCollection(boxes, alpha=0.6, facecolors=("Blue", "Red", "Orange", "Purple"), edgecolors=("Black"))
+    ax.add_collection(pc)
+
+    colors = ["Gray", "Yellow", "Red"]
+    for i in range(1, 4):
+        x = [c.location[0] for c in casualties if c.severity == i]
+        y = [c.location[1] for c in casualties if c.severity == i]
+        plt.plot(x, y, 'o', markersize=2, color=colors[i - 1], alpha=0.5, legend)
+
+    xStaging = [x for x, y in StagingLocs]
+    yStaging = [y for x, y in StagingLocs]
+    plt.plot(xStaging, yStaging, 'o', markersize=8, color="Green", markeredgecolor="Black")
+
+    plt.xlim(0, 650)
+    plt.ylim(0, 350)
+    plt.show()
+
     opt_policy = calc_optimal_policy(medevacs)
+    # opt_policy_vi = value_iteration(medevacs)
     times = []
     s = [0, 0, 0, 0, 0]
     num_skip = 0
