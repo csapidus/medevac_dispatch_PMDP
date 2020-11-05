@@ -18,7 +18,7 @@ from matplotlib.collections import PatchCollection
 # 4. (510, 240)
 HospitalLocs = [(170.0, 180.0), (310.0, 150.0)]
 StagingLocs = [(100.0, 210.0), (170.0, 180.0), (310.0, 150.0), (510.0, 240.0)]
-Speed = 300.0  # km/h
+Speed = 250.0  # km/h
 
 class Grid:
     limits = ()
@@ -38,9 +38,9 @@ class Grid:
     def generate_rand_loc(self, zone):
         xmin, xmax, ymin, ymax = self.zones[zone - 1]
         x, y = -100, -100
-        while not (xmin <= x <= xmax) and not (ymin <= y <= ymax):
-            x = np.random.normal(StagingLocs[zone - 1][0], 20)
-            y = np.random.normal(StagingLocs[zone - 1][1], 20)
+        while not (xmin <= x <= xmax) or not (ymin <= y <= ymax):
+            x = np.random.normal(StagingLocs[zone - 1][0], 70)
+            y = np.random.normal(StagingLocs[zone - 1][1], 70)
         return x, y
 
 
@@ -222,7 +222,7 @@ def calc_optimal_policy(medevacs):
     lam = 0.5
     N = 100
     for epoch in range(N):
-        casualties = generate_casualties(grid, N=1000, T=300)
+        casualties = generate_casualties(grid, N=100, T=30000)
         if epoch % 20 == 0:
             print('Entering epoch {}/{}...'.format(epoch, N))
         for medevac in medevacs:
@@ -265,7 +265,9 @@ def calc_optimal_policy(medevacs):
                 if len(a_choicesp) > 0:
                     ap = rand.choice(a_choicesp)
                     NN[sp, ap] += 1
-                    delta = casualtyp.utility + gamma * Q[s, a] - Q[sp, ap]
+                    medevacs[ap[0] - 1].assign_casualty(casualtyp)
+                    r = 0 if medevacs[a[0] - 1].get_casualty_time() > 1.0 else casualtyp.utility
+                    delta = r + gamma * Q[s, a] - Q[sp, ap]
                     for s in S:
                         for a in possible_actions(s, A):
                             Q[s, a] += alpha*delta*NN[s, a]
@@ -371,17 +373,19 @@ if __name__ == "__main__":
     ax.add_collection(pc)
 
     colors = ["Gray", "Yellow", "Red"]
+    severity = ["Routine", "Moderate", "Severe"]
     for i in range(1, 4):
         x = [c.location[0] for c in casualties if c.severity == i]
         y = [c.location[1] for c in casualties if c.severity == i]
-        plt.plot(x, y, 'o', markersize=2, color=colors[i - 1], alpha=0.5, legend)
+        plt.plot(x, y, 'o', markersize=2, color=colors[i - 1], alpha=0.5, label=severity[i - 1])
 
     xStaging = [x for x, y in StagingLocs]
     yStaging = [y for x, y in StagingLocs]
-    plt.plot(xStaging, yStaging, 'o', markersize=8, color="Green", markeredgecolor="Black")
+    plt.plot(xStaging, yStaging, 'o', markersize=8, color="Green", markeredgecolor="Black", label="Staging Locations")
 
     plt.xlim(0, 650)
     plt.ylim(0, 350)
+    plt.legend(loc = "lower right", facecolor="skyblue")
     plt.show()
 
     opt_policy = calc_optimal_policy(medevacs)
