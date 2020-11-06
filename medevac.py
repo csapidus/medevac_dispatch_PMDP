@@ -39,8 +39,8 @@ class Grid:
         xmin, xmax, ymin, ymax = self.zones[zone - 1]
         x, y = -100, -100
         while not (xmin <= x <= xmax) or not (ymin <= y <= ymax):
-            x = np.random.normal(StagingLocs[zone - 1][0], 30)
-            y = np.random.normal(StagingLocs[zone - 1][1], 30)
+            x = np.random.normal(StagingLocs[zone - 1][0], 50)
+            y = np.random.normal(StagingLocs[zone - 1][1], 50)
         return x, y
 
 
@@ -334,12 +334,10 @@ def value_iteration(medevacs):
     x = [0, 1, 2, 3]
     y = [0, 2, 3, 4]
     z = [0, 3, 4]
-    c = [1, 2, 3, 4]
-    p = [1, 2, 3]
 
     serve = [w, x, y, z]
 
-    S = [s for s in product(w, x, y, z, c, p)]
+    S = [s for s in product(w, x, y, z)]
     A = [(1, 1), (1, 2), (2, 1), (2, 2), (2, 3), (3, 2), (3, 3), (3, 4), (4, 3), (4, 4)]
     Q = {}
     NN = {}
@@ -347,14 +345,19 @@ def value_iteration(medevacs):
     phi_n = {}
     mu = {}
     alpha = 0.8
-    lam = 1/327
-    N = 1500
+    lam = 1/20
+    lami = [0.004, 0.585, 0.338, 0.073]
+    N = 2000
 
     casualties = generate_casualties(grid, N=N, T=500)
     for idx, casualty in enumerate(casualties):
         if idx % 20 == 0:
             print('Training phi and mu progress: {:0.1f}%'.format(100*(idx/N)))
-        for s in S:
+        for sh in S:
+            s = [v for v in sh]
+            s.append(casualty.zone)
+            s.append(casualty.severity)
+            s = tuple(s)
             for a in possible_actions(s, A):
                 medevacs[a[0] - 1].assign_casualty(casualty)
                 key = (*a, casualty.severity)
@@ -379,7 +382,7 @@ def value_iteration(medevacs):
     Jn = {s: 0.0 for s in S}
     Jnp1 = Jn
     sl = [0, 0, 0, 0]
-    for n in range(500):
+    for n in range(N):
         for s in S:
             # for term 1, helicopter becoming idle
             t1 = 0
@@ -388,7 +391,7 @@ def value_iteration(medevacs):
                     sp = [v for v in s]
                     sp[heli] = 0
                     sp = tuple(sp)
-                    t1 += mu[heli + 1, status]*Jn[sp]
+                    t1 += Jn[sp]/mu[heli + 1, status]
             # for term 2, request receieved
             t2 = 0
             for z in range(1, 5):
@@ -402,18 +405,56 @@ def value_iteration(medevacs):
                             if sp in S:
                                 l.append(Jn[sp] + v*phi[heli + 1, z, k])
                     if len(l) > 0:
-                        t2 += lam*pk[k - 1]*max(l)
+                        t2 += lami[z - 1]*pk[k - 1]*max(l)
             # for term 3, doing nothing
             t3 = v - lam
             for heli, status in enumerate(s):
                 if status != 0:
-                    t3 -= mu[heli + 1, status]
+                    t3 -= 1/mu[heli + 1, status]
             t3 *= Jn[s]
 
             Jn[s] = (1/v)*(t1 + t2 + t3)
 
-    print(Jn)
+    with open('Jn[s].out', 'w') as f:
+        for s in S:
+            f.write('{}: {}\n'.format(s, Jn[s]))
 
+    print(Jn)
+    policy = {}
+    for s in S:
+        for z in range(1, 5):
+            for k in range(1, 4):
+                choices = [a for hi, h in enumerate(s) if h == 0 for a in A if a[0] == hi + 1 and a[1] == z]
+                if len(choices) > 0:
+                    a_values = []
+                    for a in choices:
+                        t1 = 0
+                        for heli, status in enumerate(s):
+                            if status != 0:
+                                sp = [v for v in s]
+                                sp[heli] = 0
+                                sp = tuple(sp)
+                                t1 += Jn[sp] / mu[heli + 1, status]
+                        sp = [v for v in s]
+                        sp[a[0] - 1] = a[1]
+                        sp = tuple(sp)
+                        t2 = lami[z - 1]*pk[k - 1]*(Jn[sp] + v * phi[a[0], a[1], k])
+
+                        t3 = v - lam
+                        for heli, status in enumerate(s):
+                            if status != 0 and heli + 1 != a[0]:
+                                t3 -= 1 / mu[heli + 1, status]
+                        t3 *= Jn[s]
+                        a_values.append((1/v)*(t1 + t2 + t3))
+                    idx = a_values.index(max(a_values))
+                    sp = [v for v in s]
+                    sp.append(z)
+                    sp.append(k)
+                    sp = tuple(sp)
+                    policy[sp] = choices[idx]
+
+    print(policy)
+    return policy
 
 if __name__ == "__main__":
     n_heli = 1
