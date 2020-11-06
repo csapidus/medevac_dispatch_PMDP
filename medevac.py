@@ -381,15 +381,36 @@ def value_iteration(medevacs):
     sl = [0, 0, 0, 0]
     for n in range(2):
         for sp, s in zip(S, S[1:]):
-            for a in A:
-                i = a[1]
-                t1 = sum([Jn[s]/mu[idx + 1, i] for idx, j in enumerate(s) if j == 0])
-                t2 = 0
+            # for term 1, helicopter becoming idle
+            t1 = 0
+            for heli, status in enumerate(s):
+                if status != 0:
+                    sp = [v for v in s]
+                    sp[heli] = 0
+                    sp = tuple(sp)
+                    t1 += mu[heli + 1, status]*Jn[sp]
+            # for term 2, request receieved
+            t2 = 0
+            for z in range(1, 5):
                 for k in range(1, 4):
-                    for ii in range(1, 5):
-                        t2 += lam*pk[k]*max([Jn[s] + v*phi[idx + 1, ii, k] for idx, j in enumerate(s) if j != 0])
-                t3 = v - lam - sum([mu[idx + 1, i]*Jn[s] for idx, j in enumerate(s)])
-                Jn[s] = (1/v)*(t1 + t2 + t3)
+                    l = []
+                    for heli, status in enumerate(s):
+                        if status == 0:
+                            sp = [v for v in s]
+                            sp[heli] = z
+                            sp = tuple(sp)
+                            if sp in S:
+                                l.append(Jn[sp] + v*phi[heli + 1, z, k])
+                    if len(l) > 0:
+                        t2 += lam*pk[k - 1]*max(l)
+            # for term 3, doing nothing
+            t3 = v - lam
+            for heli, status in enumerate(s):
+                if status != 0:
+                    t3 -= mu[heli + 1, status]
+            t3 *= Jn[s]
+
+            Jn[s] = (1/v)*(t1 + t2 + t3)
 
 
 if __name__ == "__main__":
