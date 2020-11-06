@@ -348,7 +348,7 @@ def value_iteration(medevacs):
     mu = {}
     alpha = 0.8
     lam = 1/327
-    N = 100
+    N = 1500
 
     casualties = generate_casualties(grid, N=N, T=500)
     for idx, casualty in enumerate(casualties):
@@ -358,7 +358,7 @@ def value_iteration(medevacs):
             for a in possible_actions(s, A):
                 medevacs[a[0] - 1].assign_casualty(casualty)
                 key = (*a, casualty.severity)
-                t = medevacs[a[0] - 1].get_casualty_time()*60
+                t = medevacs[a[0] - 1].get_casualty_time()
                 medevacs[a[0] - 1].clear_casualty()
                 r = 0 if t > 1.0 else casualty.utility
                 if key in phi:
@@ -379,8 +379,8 @@ def value_iteration(medevacs):
     Jn = {s: 0.0 for s in S}
     Jnp1 = Jn
     sl = [0, 0, 0, 0]
-    for n in range(2):
-        for sp, s in zip(S, S[1:]):
+    for n in range(500):
+        for s in S:
             # for term 1, helicopter becoming idle
             t1 = 0
             for heli, status in enumerate(s):
@@ -411,6 +411,8 @@ def value_iteration(medevacs):
             t3 *= Jn[s]
 
             Jn[s] = (1/v)*(t1 + t2 + t3)
+
+    print(Jn)
 
 
 if __name__ == "__main__":
